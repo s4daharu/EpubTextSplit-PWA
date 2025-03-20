@@ -1,8 +1,9 @@
 {
   "name": "Text Splitter Pro",
   "short_name": "TextSplitter",
-  "description": "Advanced text processing and splitting PWA",
+  "description": "Advanced text processing PWA",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "theme_color": "#f63366",
   "background_color": "#ffffff",

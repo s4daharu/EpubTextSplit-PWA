@@ -1,37 +1,36 @@
-const CACHE_NAME = 'text-splitter-v2';
-const STATIC_ASSETS = [
-  '/',
-  '/static/manifest.json',
-  '/static/icons/icon-192x192.png',
-  '/static/icons/icon-512x512.png',
-  '/app'
-];
+const CACHE_NAME = 'streamlit-pwa-v4';
+const BASE_PATH = self.location.pathname.replace(/\/service-worker\.js$/, '');
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(STATIC_ASSETS))
-      .then(() => self.skipWaiting())
-  );
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cache => {
-          if (cache !== CACHE_NAME) {
-            return caches.delete(cache);
-          }
-        })
-      );
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll([
+        `${BASE_PATH}/`,
+        `${BASE_PATH}/static/manifest.json`,
+        `${BASE_PATH}/static/icons/icon-192x192.png`,
+        `${BASE_PATH}/static/icons/icon-512x512.png`
+      ]);
     })
   );
 });
 
 self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => response || fetch(event.request))
-  );
+  const url = new URL(event.request.url);
+  
+  // Streamlit API and static content handling
+  if (url.pathname.startsWith(`${BASE_PATH}/static`) ||
+      url.pathname.startsWith(`${BASE_PATH}/_stcore`) ||
+      url.pathname === `${BASE_PATH}/`) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        return cached || fetch(event.request).then((response) => {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+          return response;
+        });
+      })
+    );
+  }
 });
