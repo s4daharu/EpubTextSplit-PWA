@@ -1,100 +1,54 @@
-import os
-from pathlib import Path
-import tempfile
+import streamlit as st
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
-import streamlit as st
+from pathlib import Path
 from io import BytesIO
 import zipfile
 
-# Define HTML tags to ignore during text extraction.
 blocklist = ['[document]', 'noscript', 'header', 'html', 'meta', 'head', 'input', 'script']
 
-def chapter_to_text(chap):
-    """
-    Convert a chapter's HTML content into plain text.
-    
-    Args:
-        chap (bytes): The HTML content of the chapter.
+def chapter_to_text(chap_content):
+    soup = BeautifulSoup(chap_content, 'html.parser')
+    text = []
+    for t in soup.find_all(text=True):
+        if t.parent.name not in blocklist and not t.isspace():
+            text.append(t.strip())
+    return '\n\n'.join(text)
+
+st.title("EPUB to Text Chapters Converter")
+
+uploaded_file = st.file_uploader("Upload an EPUB file", type="epub")
+
+if uploaded_file is not None:
+    with st.spinner("Processing EPUB..."):
+        # Read EPUB content
+        epub_bytes = uploaded_file.getvalue()
+        book = epub.read_epub(BytesIO(epub_bytes))
+        book_name = Path(uploaded_file.name).stem
         
-    Returns:
-        str: The plain text extracted from the HTML.
-    """
-    output = ''
-    soup = BeautifulSoup(chap, 'html.parser')
-    text_nodes = soup.find_all(text=True)
-    prev = ''
-    for t in text_nodes:
-        if t.parent.name not in blocklist:
-            if not t.isspace():
-                # Add extra newlines if needed for formatting.
-                if not (str(prev).endswith(' ') or str(t).startswith(' ')):
-                    output += '\n\n'
-                output += '{}'.format(t)
-            prev = t
-    return output
-
-def convert_epub_to_text(epub_file):
-    """
-    Convert an uploaded EPUB file (as a file-like object) to plain text.
-    
-    Args:
-        epub_file (file-like object): The uploaded EPUB file.
+        # Process chapters
+        chapters = []
+        for i, item in enumerate(book.get_items()):
+            if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                chapter_content = chapter_to_text(item.get_content())
+                chapter_num = f"{i+1:03d}"
+                chapter_title = f"{book_name}_chapter_{chapter_num}.txt"
+                chapters.append((chapter_title, chapter_content))
         
-    Returns:
-        tuple: The book name (derived from the file name) and the extracted text.
-    """
-    # If the file is a file-like object (from Streamlit uploader), write it to a temporary file.
-    if hasattr(epub_file, 'read'):
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp_file:
-            tmp_file.write(epub_file.read())
-            tmp_path = tmp_file.name
-        book = epub.read_epub(tmp_path)
-        os.remove(tmp_path)
-    else:
-        book = epub.read_epub(epub_file)
-
-    # Use the file's name if available; otherwise, assign a default name.
-    if hasattr(epub_file, 'name'):
-        book_name = Path(epub_file.name).stem
-    else:
-        book_name = "converted_book"
-    
-    chapters = []
-    for item in book.get_items():
-        if item.get_type() == ebooklib.ITEM_DOCUMENT:
-            chapters.append(item.get_content())
-    
-    text_output = ""
-    for chapter in chapters:
-        text_output += chapter_to_text(chapter) + "\n"
-    
-    return book_name, text_output
-
-def main():
-    st.title("EPUB to Text Converter")
-    st.write("Upload one or more EPUB files and download a ZIP file containing the converted text files.")
-
-    # Allow users to upload multiple EPUB files.
-    uploaded_files = st.file_uploader("Choose EPUB files", type="epub", accept_multiple_files=True)
-    
-    if uploaded_files:
-        # Create an in-memory ZIP file.
+        # Create ZIP archive
         zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for uploaded_file in uploaded_files:
-                # Convert each uploaded EPUB to text.
-                book_name, text_content = convert_epub_to_text(uploaded_file)
-                # Add each text file to the ZIP archive.
-                zip_file.writestr(book_name + ".txt", text_content)
+        with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+            for title, content in chapters:
+                zipf.writestr(title, content.encode('utf-8'))
         zip_buffer.seek(0)
+        
+        st.success(f"✅ Processed {len(chapters)} chapters successfully!")
+
+        # Prepare download
         st.download_button(
-            label="Download Converted Text Files (ZIP)",
+            label="Download Chapters ZIP",
             data=zip_buffer,
-            file_name="converted_text_files.zip",
+            file_name=f"{book_name}_chapters.zip",
             mime="application/zip"
         )
-
-if __name__ == '__main__':
-    main()
