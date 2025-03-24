@@ -36,29 +36,38 @@ if uploaded_file is not None:
 
             # Process chapters
             chapters = []
-            for i, item in enumerate(book.get_items()):
+            for item in book.get_items():
                 if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    chapter_content = chapter_to_text(item.get_content())
-                    chapter_num = f"{i+1:03d}"
-                    chapter_title = f"{book_name}_chapter_{chapter_num}.txt"
-                    chapters.append((chapter_title, chapter_content))
+                    chapters.append(item.get_content())
 
-            # Create ZIP archive
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w') as zipf:
-                for title, content in chapters:
-                    zipf.writestr(title, content.encode('utf-8'))
-            zip_buffer.seek(0)
-
-            st.success(f"✅ Processed {len(chapters)} chapters successfully!")
-            
-            # Provide download link
-            st.download_button(
-                label="Download Chapters ZIP",
-                data=zip_buffer,
-                file_name=f"{book_name}_chapters.zip",
-                mime="application/zip"
-            )
+            total_chapters = len(chapters)
+            if total_chapters == 0:
+                st.error("No text chapters found in the EPUB file")
+            else:
+                st.write(f"Total chapters found: **{total_chapters}**")
+                
+                # Input for starting number
+                start_number = st.number_input("Start numbering from:", 1, 1000, 1)
+                
+                if st.button('Convert All Chapters'):
+                    with st.spinner(f"Converting {total_chapters} chapters..."):
+                        zip_buffer = BytesIO()
+                        with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+                            for idx, content in enumerate(chapters):
+                                chapter_num = start_number + idx
+                                filename = f"{book_name}{chapter_num:02d}.txt"
+                                text = chapter_to_text(content)
+                                zipf.writestr(filename, text.encode('utf-8'))
+                        zip_buffer.seek(0)
+                        st.success(f"✅ Successfully converted {total_chapters} chapters")
+                        
+                        # Download button with start number in filename
+                        st.download_button(
+                            label="Download ZIP",
+                            data=zip_buffer,
+                            file_name=f"{book_name}_chapters_starting_{start_number}.zip",
+                            mime="application/zip"
+                        )
         finally:
             # Clean up temporary file
             os.unlink(tmp_file_path)
