@@ -7,11 +7,19 @@ import streamlit as st
 from io import BytesIO
 import zipfile
 
-# Tags to ignore during text extraction
+# Define HTML tags to ignore during text extraction.
 blocklist = ['[document]', 'noscript', 'header', 'html', 'meta', 'head', 'input', 'script']
 
 def chapter_to_text(chap):
-    """Converts a chapter's HTML content into plain text."""
+    """
+    Convert a chapter's HTML content into plain text.
+    
+    Args:
+        chap (bytes): The HTML content of the chapter.
+        
+    Returns:
+        str: The plain text extracted from the HTML.
+    """
     output = ''
     soup = BeautifulSoup(chap, 'html.parser')
     text_nodes = soup.find_all(text=True)
@@ -19,7 +27,6 @@ def chapter_to_text(chap):
     for t in text_nodes:
         if t.parent.name not in blocklist:
             if not t.isspace():
-                # Insert extra newlines if needed for better formatting
                 if not (str(prev).endswith(' ') or str(t).startswith(' ')):
                     output += '\n\n'
                 output += '{}'.format(t)
@@ -28,17 +35,21 @@ def chapter_to_text(chap):
 
 def convert_epub_to_text(epub_file):
     """
-    Reads an EPUB file (passed as a file-like object) and converts it to plain text.
-    Returns the book name and the text content.
+    Convert an uploaded EPUB file (as a file-like object) to plain text.
+    
+    Args:
+        epub_file (file-like object): The uploaded EPUB file.
+        
+    Returns:
+        tuple: The book name (derived from the file name) and the extracted text.
     """
     book = epub.read_epub(epub_file)
-    # Try to use the file name if available; otherwise, use a default name.
+    # Use the file's name if available; otherwise, assign a default name.
     if hasattr(epub_file, 'name'):
         book_name = Path(epub_file.name).stem
     else:
         book_name = "converted_book"
     chapters = []
-    # Extract all document items (chapters) from the EPUB
     for item in book.get_items():
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
             chapters.append(item.get_content())
@@ -49,18 +60,18 @@ def convert_epub_to_text(epub_file):
 
 def main():
     st.title("EPUB to Text Converter")
-    st.write("Upload one or more EPUB files, and download a zip file containing the converted text files.")
+    st.write("Upload one or more EPUB files and download a ZIP file containing the converted text files.")
 
+    # Allow users to upload multiple EPUB files.
     uploaded_files = st.file_uploader("Choose EPUB files", type="epub", accept_multiple_files=True)
     
     if uploaded_files:
-        # Create an in-memory zip file
+        # Create an in-memory ZIP file.
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for uploaded_file in uploaded_files:
-                # Convert each uploaded EPUB to text
                 book_name, text_content = convert_epub_to_text(uploaded_file)
-                # Add the text file to the zip archive
+                # Add each text file into the ZIP archive.
                 zip_file.writestr(book_name + ".txt", text_content)
         zip_buffer.seek(0)
         st.download_button(
