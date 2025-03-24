@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import tempfile
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
@@ -27,6 +28,7 @@ def chapter_to_text(chap):
     for t in text_nodes:
         if t.parent.name not in blocklist:
             if not t.isspace():
+                # Add extra newlines if needed for formatting.
                 if not (str(prev).endswith(' ') or str(t).startswith(' ')):
                     output += '\n\n'
                 output += '{}'.format(t)
@@ -43,19 +45,31 @@ def convert_epub_to_text(epub_file):
     Returns:
         tuple: The book name (derived from the file name) and the extracted text.
     """
-    book = epub.read_epub(epub_file)
+    # If the file is a file-like object (from Streamlit uploader), write it to a temporary file.
+    if hasattr(epub_file, 'read'):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp_file:
+            tmp_file.write(epub_file.read())
+            tmp_path = tmp_file.name
+        book = epub.read_epub(tmp_path)
+        os.remove(tmp_path)
+    else:
+        book = epub.read_epub(epub_file)
+
     # Use the file's name if available; otherwise, assign a default name.
     if hasattr(epub_file, 'name'):
         book_name = Path(epub_file.name).stem
     else:
         book_name = "converted_book"
+    
     chapters = []
     for item in book.get_items():
         if item.get_type() == ebooklib.ITEM_DOCUMENT:
             chapters.append(item.get_content())
+    
     text_output = ""
     for chapter in chapters:
         text_output += chapter_to_text(chapter) + "\n"
+    
     return book_name, text_output
 
 def main():
@@ -70,8 +84,9 @@ def main():
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for uploaded_file in uploaded_files:
+                # Convert each uploaded EPUB to text.
                 book_name, text_content = convert_epub_to_text(uploaded_file)
-                # Add each text file into the ZIP archive.
+                # Add each text file to the ZIP archive.
                 zip_file.writestr(book_name + ".txt", text_content)
         zip_buffer.seek(0)
         st.download_button(
