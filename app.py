@@ -1,100 +1,74 @@
-import streamlit as st
-from langchain.text_splitter import RecursiveCharacterTextSplitter, CharacterTextSplitter, Language
-import tiktoken
-import streamlit.components.v1 as components
+import os
+from pathlib import Path
+import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
-import tempfile
-import os
+import streamlit as st
+from io import BytesIO
+import zipfile
 
-# -------------------------
-# PWA Configuration (Streamlit Cloud Optimized)
-# -------------------------
-def register_pwa():
-    """Streamlit-specific PWA setup with base path handling"""
-    base_path = st._config.get_option("server.baseUrlPath").strip("/")
+# Tags to ignore during text extraction
+blocklist = ['[document]', 'noscript', 'header', 'html', 'meta', 'head', 'input', 'script']
+
+def chapter_to_text(chap):
+    """Converts a chapter's HTML content into plain text."""
+    output = ''
+    soup = BeautifulSoup(chap, 'html.parser')
+    text_nodes = soup.find_all(text=True)
+    prev = ''
+    for t in text_nodes:
+        if t.parent.name not in blocklist:
+            if not t.isspace():
+                # Insert extra newlines if needed for better formatting
+                if not (str(prev).endswith(' ') or str(t).startswith(' ')):
+                    output += '\n\n'
+                output += '{}'.format(t)
+            prev = t
+    return output
+
+def convert_epub_to_text(epub_file):
+    """
+    Reads an EPUB file (passed as a file-like object) and converts it to plain text.
+    Returns the book name and the text content.
+    """
+    book = epub.read_epub(epub_file)
+    # Try to use the file name if available; otherwise, use a default name.
+    if hasattr(epub_file, 'name'):
+        book_name = Path(epub_file.name).stem
+    else:
+        book_name = "converted_book"
+    chapters = []
+    # Extract all document items (chapters) from the EPUB
+    for item in book.get_items():
+        if item.get_type() == ebooklib.ITEM_DOCUMENT:
+            chapters.append(item.get_content())
+    text_output = ""
+    for chapter in chapters:
+        text_output += chapter_to_text(chapter) + "\n"
+    return book_name, text_output
+
+def main():
+    st.title("EPUB to Text Converter")
+    st.write("Upload one or more EPUB files, and download a zip file containing the converted text files.")
+
+    uploaded_files = st.file_uploader("Choose EPUB files", type="epub", accept_multiple_files=True)
     
-    st.markdown(f"""
-    <link rel="manifest" href="/static/manifest.json?v=3">
-    <meta name="theme-color" content="#f63366">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
-    """, unsafe_allow_html=True)
+    if uploaded_files:
+        # Create an in-memory zip file
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for uploaded_file in uploaded_files:
+                # Convert each uploaded EPUB to text
+                book_name, text_content = convert_epub_to_text(uploaded_file)
+                # Add the text file to the zip archive
+                zip_file.writestr(book_name + ".txt", text_content)
+        zip_buffer.seek(0)
+        st.download_button(
+            label="Download Converted Text Files (ZIP)",
+            data=zip_buffer,
+            file_name="converted_text_files.zip",
+            mime="application/zip"
+        )
 
-    components.html(f"""
-    <script>
-    if ('serviceWorker' in navigator) {{
-        const basePath = "{base_path}";
-        window.addEventListener('load', () => {{
-            navigator.serviceWorker.register(basePath + '/static/service-worker.js', {{ 
-                scope: basePath + '/' 
-            }})
-            .then(reg => console.log('ServiceWorker registered for scope:', reg.scope))
-            .catch(err => console.log('ServiceWorker registration failed:', err));
-        }});
-    }}
-    </script>
-    """, height=0, width=0)
-
-def add_install_prompt():
-    """Enhanced install prompt with Streamlit styling"""
-    components.html("""
-    <script>
-    let deferredPrompt;
-    const installButton = document.createElement('button');
-    
-    function showInstallButton() {
-        installButton.style.display = 'block';
-    }
-    
-    function hideInstallButton() {
-        installButton.style.display = 'none';
-    }
-
-    // Styling matching Streamlit's theme
-    installButton.innerHTML = '📱 Install App';
-    installButton.style.display = 'none';
-    installButton.style.position = 'fixed';
-    installButton.style.bottom = '20px';
-    installButton.style.right = '20px';
-    installButton.style.zIndex = '999999';
-    installButton.style.padding = '10px 20px';
-    installButton.style.background = '#f63366';
-    installButton.style.color = 'white';
-    installButton.style.border = 'none';
-    installButton.style.borderRadius = '4px';
-    installButton.style.fontFamily = 'Source Sans Pro, sans-serif';
-    installButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-    document.body.appendChild(installButton);
-
-    window.addEventListener('beforeinstallprompt', (e) => {{
-        e.preventDefault();
-        deferredPrompt = e;
-        showInstallButton();
-        
-        // Auto-hide after 30 seconds
-        setTimeout(hideInstallButton, 30000);
-    }});
-
-    installButton.addEventListener('click', async () => {{
-        if(!deferredPrompt) return;
-        const {{ outcome }} = await deferredPrompt.prompt();
-        if(outcome === 'accepted') {{
-            console.log('User installed PWA');
-            hideInstallButton();
-        }}
-        deferredPrompt = null;
-    }});
-    </script>
-    """, height=0, width=0)
-
-# Initialize PWA components
-register_pwa()
-add_install_prompt()
-
-# -------------------------
-# Original Application Logic 
-# ------------------------- 
-# [Keep all your existing text processing code unchanged]
-# [Include the exact same code for extract_chapters, session state management, UI components, etc.]
-
-# ... (Rest of your existing application code remains identical)
+if __name__ == '__main__':
+    main()
